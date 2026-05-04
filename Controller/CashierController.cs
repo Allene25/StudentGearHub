@@ -231,10 +231,10 @@ namespace StudentGearHub.Controllers
             catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
         }
     }
-
     public class PaymentModel
     {
         public int TransactionId { get; set; }
         public decimal AmountPaid { get; set; }
     }
 }
+

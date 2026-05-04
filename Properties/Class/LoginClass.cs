@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.Configuration;
 using StudentGearHub.API.IRepository;
 using StudentGearHub.API.Model;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 
 namespace ACLC_Gear_Hub.Properties
 {

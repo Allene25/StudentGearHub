@@ -1,8 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
-using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using StudentGearHub.API.IRepository;
 using StudentGearHub.API.Model;
@@ -33,44 +30,33 @@ namespace StudentGearHub.Controllers
             if (!response.IsSuccess)
                 return Unauthorized(new { message = response.Message });
 
-            // Generate JWT Token
-            var token = GenerateJwtToken(model.Username!);
+            // Generate simple token
+            var token = GenerateToken(model.Username!);
 
             return Ok(new
             {
                 message = response.Message,
-                token = token
+                token = token,
+                username = model.Username,
+                expiresAt = DateTime.UtcNow.AddHours(1).ToString("yyyy-MM-dd HH:mm:ss")
             });
         }
 
-        private string GenerateJwtToken(string username)
+        private string GenerateToken(string username)
         {
-            var jwtSettings = _configuration.GetSection("JwtSettings");
-            var secretKey = jwtSettings["SecretKey"];
-            var issuer = jwtSettings["Issuer"];
-            var audience = jwtSettings["Audience"];
-            var expiryMinutes = int.Parse(jwtSettings["ExpiryMinutes"] ?? "60");
+            var secretKey = _configuration["JwtSettings:SecretKey"]
+                            ?? "StudentGearHub@SecretKey1234567890!";
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey!));
-            var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var payload = $"{username}:{DateTime.UtcNow.AddHours(1):o}";
+            var keyBytes = Encoding.UTF8.GetBytes(secretKey);
+            var payloadBytes = Encoding.UTF8.GetBytes(payload);
 
-            var claims = new[]
-            {
-                new Claim(ClaimTypes.Name, username),
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                new Claim(JwtRegisteredClaimNames.Iat,
-                    new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds().ToString())
-            };
+            using var hmac = new HMACSHA256(keyBytes);
+            var signature = hmac.ComputeHash(payloadBytes);
+            var signatureBase64 = Convert.ToBase64String(signature);
+            var payloadBase64 = Convert.ToBase64String(payloadBytes);
 
-            var token = new JwtSecurityToken(
-                issuer: issuer,
-                audience: audience,
-                claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(expiryMinutes),
-                signingCredentials: credentials
-            );
-
-            return new JwtSecurityTokenHandler().WriteToken(token);
+            return $"{payloadBase64}.{signatureBase64}";
         }
     }
 }
