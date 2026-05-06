@@ -1,4 +1,4 @@
-﻿namespace StudentGearHub.API.IRepository
+﻿namespace StudentGearHub.Model
 {
     public class CheckoutRequest
     {
