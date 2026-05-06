@@ -1,14 +1,13 @@
 ﻿using StudentGearHub.API.IRepository;
+using StudentGearHub.Model;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Data.SqlClient;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 
 namespace StudentGearHub.API.Repository
 {
     public class OrderRepository : IOrderRepository
     {
-        private readonly string _connectionString;
+        private readonly string? _connectionString;
 
         public OrderRepository(IConfiguration configuration)
         {
@@ -17,26 +16,28 @@ namespace StudentGearHub.API.Repository
 
         public async Task<OrderResponse> Checkout(CheckoutRequest request)
         {
-            const string getCartQuery = @"
-                SELECT 
-                    c.CartItemId, c.ItemId, c.ItemType, c.Quantity,
-                    CASE 
-                        WHEN c.ItemType = 'Gear' THEN g.Price
-                        WHEN c.ItemType = 'Uniform' THEN u.Price
-                    END AS Price
+            const string checkCartQuery = "SELECT COUNT(*) FROM Cart WHERE StudentId = @StudentId";
+            const string calcTotalQuery = @"
+                SELECT SUM(p.Price * c.Quantity)
                 FROM Cart c
-                LEFT JOIN GearItems g ON c.ItemId = g.ItemId AND c.ItemType = 'Gear'
-                LEFT JOIN UniformItems u ON c.ItemId = u.ItemId AND c.ItemType = 'Uniform'
+                INNER JOIN Products p ON c.ProductId = p.Id
                 WHERE c.StudentId = @StudentId";
-
             const string insertOrderQuery = @"
                 INSERT INTO Orders (StudentId, TotalAmount, PaymentMethod, Notes, Status, OrderDate)
                 OUTPUT INSERTED.OrderId
                 VALUES (@StudentId, @TotalAmount, @PaymentMethod, @Notes, 'Pending', GETDATE())";
-
-            const string insertOrderItemQuery = @"
-                INSERT INTO OrderItems (OrderId, ItemId, ItemType, Quantity, Price)
-                VALUES (@OrderId, @ItemId, @ItemType, @Quantity, @Price)";
+            const string insertOrderItemsQuery = @"
+                INSERT INTO OrderItems (OrderId, ProductId, Quantity, Price)
+                SELECT @OrderId, c.ProductId, c.Quantity, p.Price
+                FROM Cart c
+                INNER JOIN Products p ON c.ProductId = p.Id
+                WHERE c.StudentId = @StudentId";
+            const string deductStockQuery = @"
+                UPDATE p SET p.Stock = p.Stock - c.Quantity
+                FROM Products p
+                INNER JOIN Cart c ON p.Id = c.ProductId
+                WHERE c.StudentId = @StudentId";
+            const string clearCartQuery = "DELETE FROM Cart WHERE StudentId = @StudentId";
 
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync();
@@ -44,54 +45,41 @@ namespace StudentGearHub.API.Repository
 
             try
             {
-                // Get cart items
-                var cartItems = new List<(int ItemId, string ItemType, int Quantity, decimal Price)>();
-                decimal totalAmount = 0;
+                // Check cart is not empty
+                using var checkCmd = new SqlCommand(checkCartQuery, connection, transaction);
+                checkCmd.Parameters.AddWithValue("@StudentId", request.StudentId ?? "");
+                var cartCount = (int)(await checkCmd.ExecuteScalarAsync() ?? 0);
 
-                using var cartCmd = new SqlCommand(getCartQuery, connection, transaction);
-                cartCmd.Parameters.AddWithValue("@StudentId", request.StudentId);
-
-                using var reader = await cartCmd.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
-                {
-                    var price = Convert.ToDecimal(reader["Price"]);
-                    var qty = Convert.ToInt32(reader["Quantity"]);
-                    cartItems.Add((
-                        Convert.ToInt32(reader["ItemId"]),
-                        reader["ItemType"].ToString()!,
-                        qty,
-                        price
-                    ));
-                    totalAmount += price * qty;
-                }
-                reader.Close();
-
-                if (cartItems.Count == 0)
+                if (cartCount == 0)
                     return new OrderResponse { Success = false, Message = "Cart is empty." };
+
+                // Calculate total
+                using var totalCmd = new SqlCommand(calcTotalQuery, connection, transaction);
+                totalCmd.Parameters.AddWithValue("@StudentId", request.StudentId ?? "");
+                var totalAmount = Convert.ToDecimal(await totalCmd.ExecuteScalarAsync() ?? 0);
 
                 // Create order
                 using var orderCmd = new SqlCommand(insertOrderQuery, connection, transaction);
-                orderCmd.Parameters.AddWithValue("@StudentId", request.StudentId);
+                orderCmd.Parameters.AddWithValue("@StudentId", request.StudentId ?? "");
                 orderCmd.Parameters.AddWithValue("@TotalAmount", totalAmount);
                 orderCmd.Parameters.AddWithValue("@PaymentMethod", request.PaymentMethod ?? "Cash");
                 orderCmd.Parameters.AddWithValue("@Notes", request.Notes ?? "");
-                var orderId = (int)await orderCmd.ExecuteScalarAsync();
+                var orderId = (int)(await orderCmd.ExecuteScalarAsync() ?? 0);
 
                 // Insert order items
-                foreach (var item in cartItems)
-                {
-                    using var itemCmd = new SqlCommand(insertOrderItemQuery, connection, transaction);
-                    itemCmd.Parameters.AddWithValue("@OrderId", orderId);
-                    itemCmd.Parameters.AddWithValue("@ItemId", item.ItemId);
-                    itemCmd.Parameters.AddWithValue("@ItemType", item.ItemType);
-                    itemCmd.Parameters.AddWithValue("@Quantity", item.Quantity);
-                    itemCmd.Parameters.AddWithValue("@Price", item.Price);
-                    await itemCmd.ExecuteNonQueryAsync();
-                }
+                using var itemsCmd = new SqlCommand(insertOrderItemsQuery, connection, transaction);
+                itemsCmd.Parameters.AddWithValue("@OrderId", orderId);
+                itemsCmd.Parameters.AddWithValue("@StudentId", request.StudentId ?? "");
+                await itemsCmd.ExecuteNonQueryAsync();
+
+                // Deduct stock
+                using var stockCmd = new SqlCommand(deductStockQuery, connection, transaction);
+                stockCmd.Parameters.AddWithValue("@StudentId", request.StudentId ?? "");
+                await stockCmd.ExecuteNonQueryAsync();
 
                 // Clear cart
-                using var clearCmd = new SqlCommand("DELETE FROM Cart WHERE StudentId = @StudentId", connection, transaction);
-                clearCmd.Parameters.AddWithValue("@StudentId", request.StudentId);
+                using var clearCmd = new SqlCommand(clearCartQuery, connection, transaction);
+                clearCmd.Parameters.AddWithValue("@StudentId", request.StudentId ?? "");
                 await clearCmd.ExecuteNonQueryAsync();
 
                 transaction.Commit();
@@ -152,27 +140,22 @@ namespace StudentGearHub.API.Repository
             const string orderQuery = @"
                 SELECT OrderId, StudentId, TotalAmount, Status, PaymentMethod, Notes, OrderDate
                 FROM Orders WHERE OrderId = @OrderId";
-
             const string itemsQuery = @"
-                SELECT 
-                    oi.ItemId, oi.ItemType, oi.Quantity, oi.Price,
-                    CASE 
-                        WHEN oi.ItemType = 'Gear' THEN g.ItemName
-                        WHEN oi.ItemType = 'Uniform' THEN u.ItemName
-                    END AS ItemName
+                SELECT oi.OrderItemId, oi.ProductId, p.Name AS ProductName,
+                       p.Category, oi.Quantity, oi.Price,
+                       (oi.Price * oi.Quantity) AS TotalPrice
                 FROM OrderItems oi
-                LEFT JOIN GearItems g ON oi.ItemId = g.ItemId AND oi.ItemType = 'Gear'
-                LEFT JOIN UniformItems u ON oi.ItemId = u.ItemId AND oi.ItemType = 'Uniform'
+                INNER JOIN Products p ON oi.ProductId = p.Id
                 WHERE oi.OrderId = @OrderId";
 
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync();
 
-            // Get order header
+            OrderDetailResponse? order = null;
+
             using var orderCmd = new SqlCommand(orderQuery, connection);
             orderCmd.Parameters.AddWithValue("@OrderId", orderId);
 
-            OrderDetailResponse? order = null;
             using var orderReader = await orderCmd.ExecuteReaderAsync();
             if (await orderReader.ReadAsync())
             {
@@ -183,7 +166,7 @@ namespace StudentGearHub.API.Repository
                     TotalAmount = Convert.ToDecimal(orderReader["TotalAmount"]),
                     Status = orderReader["Status"].ToString(),
                     PaymentMethod = orderReader["PaymentMethod"].ToString(),
-                    Notes = orderReader["Notes"].ToString(),
+                    Notes = orderReader["Notes"] == DBNull.Value ? null : orderReader["Notes"].ToString(),
                     OrderDate = Convert.ToDateTime(orderReader["OrderDate"]),
                     Items = new List<OrderItemDetail>()
                 };
@@ -193,23 +176,20 @@ namespace StudentGearHub.API.Repository
             if (order == null)
                 return new OrderDetailResponse();
 
-            // Get order items
             using var itemsCmd = new SqlCommand(itemsQuery, connection);
             itemsCmd.Parameters.AddWithValue("@OrderId", orderId);
 
             using var itemsReader = await itemsCmd.ExecuteReaderAsync();
             while (await itemsReader.ReadAsync())
             {
-                var price = Convert.ToDecimal(itemsReader["Price"]);
-                var qty = Convert.ToInt32(itemsReader["Quantity"]);
                 order.Items!.Add(new OrderItemDetail
                 {
-                    ItemId = Convert.ToInt32(itemsReader["ItemId"]),
-                    ItemName = itemsReader["ItemName"].ToString(),
-                    ItemType = itemsReader["ItemType"].ToString(),
-                    Quantity = qty,
-                    Price = price,
-                    TotalPrice = price * qty
+                    ItemId = Convert.ToInt32(itemsReader["ProductId"]),
+                    ItemName = itemsReader["ProductName"].ToString(),
+                    ItemType = itemsReader["Category"].ToString(),
+                    Quantity = Convert.ToInt32(itemsReader["Quantity"]),
+                    Price = Convert.ToDecimal(itemsReader["Price"]),
+                    TotalPrice = Convert.ToDecimal(itemsReader["TotalPrice"])
                 });
             }
 

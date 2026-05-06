@@ -1,14 +1,13 @@
 ﻿using StudentGearHub.API.IRepository;
+using StudentGearHub.Model;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Data.SqlClient;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 
 namespace StudentGearHub.Properties.Repository
 {
     public class CartRepository : ICartRepository
     {
-        private readonly string _connectionString;
+        private readonly string? _connectionString;
 
         public CartRepository(IConfiguration configuration)
         {
@@ -17,49 +16,33 @@ namespace StudentGearHub.Properties.Repository
 
         public async Task<CartResponse> AddToCart(AddToCartRequest request)
         {
-            const string checkQuery = @"
-                SELECT COUNT(*) FROM Cart 
-                WHERE StudentId = @StudentId AND ItemId = @ItemId AND ItemType = @ItemType";
-
-            const string updateQuery = @"
-                UPDATE Cart SET Quantity = Quantity + @Quantity
-                WHERE StudentId = @StudentId AND ItemId = @ItemId AND ItemType = @ItemType";
-
-            const string insertQuery = @"
-                INSERT INTO Cart (StudentId, ItemId, ItemType, Quantity)
-                VALUES (@StudentId, @ItemId, @ItemType, @Quantity)";
+            const string checkQuery = "SELECT COUNT(*) FROM Cart WHERE StudentId = @StudentId AND ProductId = @ProductId";
+            const string updateQuery = "UPDATE Cart SET Quantity = Quantity + @Quantity WHERE StudentId = @StudentId AND ProductId = @ProductId";
+            const string insertQuery = "INSERT INTO Cart (StudentId, ProductId, Quantity) VALUES (@StudentId, @ProductId, @Quantity)";
 
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync();
 
-            // Check if item already in cart
             using var checkCmd = new SqlCommand(checkQuery, connection);
-            checkCmd.Parameters.AddWithValue("@StudentId", request.StudentId);
-            checkCmd.Parameters.AddWithValue("@ItemId", request.ItemId);
-            checkCmd.Parameters.AddWithValue("@ItemType", request.ItemType);
-            var exists = (int)await checkCmd.ExecuteScalarAsync();
+            checkCmd.Parameters.AddWithValue("@StudentId", request.StudentId ?? "");
+            checkCmd.Parameters.AddWithValue("@ProductId", request.ProductId);
+            var exists = (int)(await checkCmd.ExecuteScalarAsync() ?? 0);
 
             if (exists > 0)
             {
-                // Update quantity
                 using var updateCmd = new SqlCommand(updateQuery, connection);
                 updateCmd.Parameters.AddWithValue("@Quantity", request.Quantity);
-                updateCmd.Parameters.AddWithValue("@StudentId", request.StudentId);
-                updateCmd.Parameters.AddWithValue("@ItemId", request.ItemId);
-                updateCmd.Parameters.AddWithValue("@ItemType", request.ItemType);
+                updateCmd.Parameters.AddWithValue("@StudentId", request.StudentId ?? "");
+                updateCmd.Parameters.AddWithValue("@ProductId", request.ProductId);
                 await updateCmd.ExecuteNonQueryAsync();
-
                 return new CartResponse { Success = true, Message = "Cart quantity updated." };
             }
 
-            // Insert new cart item
             using var insertCmd = new SqlCommand(insertQuery, connection);
-            insertCmd.Parameters.AddWithValue("@StudentId", request.StudentId);
-            insertCmd.Parameters.AddWithValue("@ItemId", request.ItemId);
-            insertCmd.Parameters.AddWithValue("@ItemType", request.ItemType);
+            insertCmd.Parameters.AddWithValue("@StudentId", request.StudentId ?? "");
+            insertCmd.Parameters.AddWithValue("@ProductId", request.ProductId);
             insertCmd.Parameters.AddWithValue("@Quantity", request.Quantity);
             await insertCmd.ExecuteNonQueryAsync();
-
             return new CartResponse { Success = true, Message = "Item added to cart." };
         }
 
@@ -102,23 +85,11 @@ namespace StudentGearHub.Properties.Repository
         public async Task<List<CartItemResponse>> GetCartByStudent(string studentId)
         {
             const string query = @"
-                SELECT 
-                    c.CartItemId, c.StudentId, c.ItemId, c.ItemType, c.Quantity,
-                    CASE 
-                        WHEN c.ItemType = 'Gear' THEN g.ItemName
-                        WHEN c.ItemType = 'Uniform' THEN u.ItemName
-                    END AS ItemName,
-                    CASE 
-                        WHEN c.ItemType = 'Gear' THEN g.Price
-                        WHEN c.ItemType = 'Uniform' THEN u.Price
-                    END AS Price,
-                    CASE 
-                        WHEN c.ItemType = 'Gear' THEN g.ImageUrl
-                        WHEN c.ItemType = 'Uniform' THEN u.ImageUrl
-                    END AS ImageUrl
+                SELECT c.CartItemId, c.StudentId, c.ProductId,
+                       p.Name AS ProductName, p.Category, p.Price, p.ImageUrl, c.Quantity,
+                       (p.Price * c.Quantity) AS TotalPrice
                 FROM Cart c
-                LEFT JOIN GearItems g ON c.ItemId = g.ItemId AND c.ItemType = 'Gear'
-                LEFT JOIN UniformItems u ON c.ItemId = u.ItemId AND c.ItemType = 'Uniform'
+                INNER JOIN Products p ON c.ProductId = p.Id
                 WHERE c.StudentId = @StudentId";
 
             var cartItems = new List<CartItemResponse>();
@@ -132,20 +103,17 @@ namespace StudentGearHub.Properties.Repository
             using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
-                var price = Convert.ToDecimal(reader["Price"]);
-                var quantity = Convert.ToInt32(reader["Quantity"]);
-
                 cartItems.Add(new CartItemResponse
                 {
                     CartItemId = Convert.ToInt32(reader["CartItemId"]),
                     StudentId = reader["StudentId"].ToString(),
-                    ItemId = Convert.ToInt32(reader["ItemId"]),
-                    ItemName = reader["ItemName"].ToString(),
-                    ItemType = reader["ItemType"].ToString(),
-                    ImageUrl = reader["ImageUrl"].ToString(),
-                    Quantity = quantity,
-                    Price = price,
-                    TotalPrice = price * quantity
+                    ProductId = Convert.ToInt32(reader["ProductId"]),
+                    ProductName = reader["ProductName"].ToString(),
+                    Category = reader["Category"].ToString(),
+                    ImageUrl = reader["ImageUrl"] == DBNull.Value ? null : reader["ImageUrl"].ToString(),
+                    Quantity = Convert.ToInt32(reader["Quantity"]),
+                    Price = Convert.ToDecimal(reader["Price"]),
+                    TotalPrice = Convert.ToDecimal(reader["TotalPrice"])
                 });
             }
 
