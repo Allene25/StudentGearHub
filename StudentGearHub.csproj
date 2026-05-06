@@ -10,12 +10,16 @@
   <ItemGroup>
     <Compile Remove="NewFolder1\**" />
     <Compile Remove="NewFolder2\**" />
+    <Compile Remove="ACLC Student Gear Hub\**" />
     <Content Remove="NewFolder1\**" />
     <Content Remove="NewFolder2\**" />
+    <Content Remove="ACLC Student Gear Hub\**" />
     <EmbeddedResource Remove="NewFolder1\**" />
     <EmbeddedResource Remove="NewFolder2\**" />
+    <EmbeddedResource Remove="ACLC Student Gear Hub\**" />
     <None Remove="NewFolder1\**" />
     <None Remove="NewFolder2\**" />
+    <None Remove="ACLC Student Gear Hub\**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,25 +28,20 @@
     <Compile Remove="Properties\Class\ServiceResponse.cs" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Include="C:\Users\Lezer\Documents\Aclc_Student_GearHub final\Program.cs" Link="Program.cs" />
-  </ItemGroup>
 
-  <ItemGroup>
-    <Content Include="C:\Users\Lezer\Documents\Aclc_Student_GearHub final\appsettings.json" Link="appsettings.json" />
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.14" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.14">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.3.2" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.18.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.18.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
-    <PackageReference Include="System.Data.SqlClient" Version="4.9.1" />
   </ItemGroup>
 
 </Project>
