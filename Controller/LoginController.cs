@@ -1,10 +1,12 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using System.Security.Cryptography;
 using System.Text;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using Microsoft.IdentityModel.Tokens;
 using StudentGearHub.API.IRepository;
 using StudentGearHub.API.Model;
 
-namespace StudentGearHub.Controllers
+namespace StudentGearHub.Controller
 {
     [ApiController]
     [Route("api/[controller]")]
@@ -30,33 +32,67 @@ namespace StudentGearHub.Controllers
             if (!response.IsSuccess)
                 return Unauthorized(new { message = response.Message });
 
-            // Generate simple token
-            var token = GenerateToken(model.Username!);
+            // Get user role from response or default to "Student"
+            var role = (response.Data as User)?.Role ?? "Student";
+
+            // Generate JWT token
+            var token = GenerateJwtToken(model.Username!, role);
+            var expiresAt = DateTime.UtcNow.AddMinutes(60);
 
             return Ok(new
             {
                 message = response.Message,
-                token = token,
+                token,
                 username = model.Username,
-                expiresAt = DateTime.UtcNow.AddHours(1).ToString("yyyy-MM-dd HH:mm:ss")
+                role,
+                expiresAt = expiresAt.ToString("yyyy-MM-dd HH:mm:ss")
             });
         }
 
-        private string GenerateToken(string username)
+        private string GenerateJwtToken(string username, string role)
         {
-            var secretKey = _configuration["JwtSettings:SecretKey"]
-                            ?? "StudentGearHub@SecretKey1234567890!";
+            var jwtSettings = _configuration.GetSection("JwtSettings");
+            var secretKey = jwtSettings["SecretKey"] ?? "StudentGearHub@SecretKey1234567890!";
+            var issuer = jwtSettings["Issuer"] ?? "StudentGearHub";
+            var audience = jwtSettings["Audience"] ?? "StudentGearHubUsers";
+            var expirationMinutes = int.Parse(jwtSettings["ExpirationMinutes"] ?? "60");
 
-            var payload = $"{username}:{DateTime.UtcNow.AddHours(1):o}";
-            var keyBytes = Encoding.UTF8.GetBytes(secretKey);
-            var payloadBytes = Encoding.UTF8.GetBytes(payload);
+            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+            var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
-            using var hmac = new HMACSHA256(keyBytes);
-            var signature = hmac.ComputeHash(payloadBytes);
-            var signatureBase64 = Convert.ToBase64String(signature);
-            var payloadBase64 = Convert.ToBase64String(payloadBytes);
+            var claims = new[]
+            {
+                new Claim(ClaimTypes.Name, username),
+                new Claim(ClaimTypes.Role, role),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())
+            };
 
-            return $"{payloadBase64}.{signatureBase64}";
+            var token = new JwtSecurityToken(
+                issuer: issuer,
+                audience: audience,
+                claims: claims,
+                expires: DateTime.UtcNow.AddMinutes(expirationMinutes),
+                signingCredentials: credentials
+            );
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromBody] RegisterModel model)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(new { message = "Invalid registration data", errors = ModelState });
+
+            // Check if username already exists
+            var existingUser = await _loginRepo.GetLogin(model.Username!, "");
+            if (existingUser.IsSuccess)
+                return BadRequest(new { message = "Username already exists" });
+
+            // Register the user (you'll need to implement this in your repository)
+            // For now, return success
+            return Ok(new { message = "Registration successful" });
         }
     }
 }

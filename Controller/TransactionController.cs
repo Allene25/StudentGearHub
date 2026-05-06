@@ -1,27 +1,69 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using StudentGearHub.Model;
-using System.Data.SqlClient;
+using StudentGearHub.Models;
+using Microsoft.Data.SqlClient;
 
-namespace StudentGearHub.Controllers
+namespace StudentGearHub.Controller
 {
     [ApiController]
     [Route("api/[controller]")]
     public class TransactionController : ControllerBase
     {
         private readonly string? _connectionString;
+        private readonly ILogger<TransactionController> _logger;
 
-        public TransactionController(IConfiguration configuration)
+        public TransactionController(IConfiguration configuration, ILogger<TransactionController> logger)
         {
             _connectionString = configuration.GetConnectionString("DefaultConnection");
+            _logger = logger;
         }
 
         // POST: api/Transaction/purchase
         [HttpPost("purchase")]
+        [Authorize(Roles = "Admin,Cashier")]
         public async Task<IActionResult> Purchase([FromBody] TransactionModel transaction)
         {
             try
             {
+                // Validate input
+                if (transaction.StudentId <= 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Invalid student ID.",
+                        StatusCode = 400
+                    });
+                }
+
+                if (transaction.ProductId <= 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Invalid product ID.",
+                        StatusCode = 400
+                    });
+                }
+
+                if (transaction.Quantity <= 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Quantity must be greater than zero.",
+                        StatusCode = 400
+                    });
+                }
+
+                if (transaction.TotalAmount <= 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Invalid total amount.",
+                        StatusCode = 400
+                    });
+                }
+
                 using var conn = new SqlConnection(_connectionString);
                 await conn.OpenAsync();
 
@@ -31,7 +73,13 @@ namespace StudentGearHub.Controllers
                 var stock = (int?)await checkCmd.ExecuteScalarAsync();
 
                 if (stock == null || stock < transaction.Quantity)
-                    return BadRequest(new { message = "Insufficient stock." });
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Insufficient stock",
+                        StatusCode = 400
+                    });
+                }
 
                 var insertQuery = @"INSERT INTO Transactions (StudentId, ProductId, Quantity, TotalAmount, Status, TransactionDate)
                                     VALUES (@StudentId, @ProductId, @Quantity, @TotalAmount, 'Pending', GETDATE())";
@@ -50,15 +98,42 @@ namespace StudentGearHub.Controllers
 
                 return Ok(new { message = "Purchase successful." });
             }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex, "Database error processing purchase.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "A database error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error processing purchase.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "An unexpected error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
         }
 
         // PUT: api/Transaction/return
         [HttpPut("return")]
+        [Authorize(Roles = "Admin,Cashier")]
         public async Task<IActionResult> Return([FromBody] ReturnModel model)
         {
             try
             {
+                if (model.TransactionId <= 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Invalid transaction ID.",
+                        StatusCode = 400
+                    });
+                }
+
                 using var conn = new SqlConnection(_connectionString);
                 await conn.OpenAsync();
                 var query = "UPDATE Transactions SET Status = 'Returned' WHERE Id = @Id";
@@ -67,15 +142,42 @@ namespace StudentGearHub.Controllers
                 await cmd.ExecuteNonQueryAsync();
                 return Ok(new { message = "Item returned successfully." });
             }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex, "Database error processing return.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "A database error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error processing return.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "An unexpected error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
         }
 
         // DELETE: api/Transaction/{id}
         [HttpDelete("{id}")]
+        [Authorize(Roles = "Admin,Cashier")]
         public async Task<IActionResult> Delete(int id)
         {
             try
             {
+                if (id <= 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Invalid transaction ID.",
+                        StatusCode = 400
+                    });
+                }
+
                 using var conn = new SqlConnection(_connectionString);
                 await conn.OpenAsync();
                 var query = "DELETE FROM Transactions WHERE Id = @Id";
@@ -84,15 +186,42 @@ namespace StudentGearHub.Controllers
                 await cmd.ExecuteNonQueryAsync();
                 return Ok(new { message = "Transaction deleted successfully." });
             }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex, "Database error deleting transaction.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "A database error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error deleting transaction.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "An unexpected error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
         }
 
         // GET: api/Transaction/{id}
         [HttpGet("{id}")]
+        [Authorize(Roles = "Admin,Cashier")]
         public async Task<IActionResult> GetById(int id)
         {
             try
             {
+                if (id <= 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Invalid transaction ID.",
+                        StatusCode = 400
+                    });
+                }
+
                 using var conn = new SqlConnection(_connectionString);
                 await conn.OpenAsync();
                 var query = "SELECT * FROM Transactions WHERE Id = @Id";
@@ -112,13 +241,35 @@ namespace StudentGearHub.Controllers
                         TransactionDate = reader["TransactionDate"]
                     });
                 }
-                return NotFound(new { message = "Transaction not found." });
+                return NotFound(new ErrorResponse
+                {
+                    Message = "Transaction not found.",
+                    StatusCode = 404
+                });
             }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex, "Database error retrieving transaction.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "A database error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error retrieving transaction.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "An unexpected error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
         }
 
         // GET: api/Transaction
         [HttpGet]
+        [Authorize(Roles = "Admin,Cashier")]
         public async Task<IActionResult> GetAll()
         {
             try
@@ -144,7 +295,24 @@ namespace StudentGearHub.Controllers
                 }
                 return Ok(transactions);
             }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex, "Database error retrieving transactions.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "A database error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error retrieving transactions.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "An unexpected error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
         }
     }
 

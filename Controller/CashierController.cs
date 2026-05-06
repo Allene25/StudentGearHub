@@ -2,7 +2,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Data.SqlClient;
 
-namespace StudentGearHub.Controllers
+namespace StudentGearHub.Controller
 {
     [ApiController]
     [Route("api/[controller]")]
@@ -28,7 +28,7 @@ namespace StudentGearHub.Controllers
                 var checkQuery = "SELECT COUNT(1) FROM Transactions WHERE Id = @TransactionId AND Status = 'Pending'";
                 using var checkCmd = new SqlCommand(checkQuery, conn);
                 checkCmd.Parameters.AddWithValue("@TransactionId", payment.TransactionId);
-                var exists = (int)await checkCmd.ExecuteScalarAsync();
+                var exists = (int)(await checkCmd.ExecuteScalarAsync() ?? 0);
 
                 if (exists == 0)
                     return BadRequest(new { message = "Transaction not found or already processed." });

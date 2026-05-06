@@ -1,27 +1,60 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using StudentGearHub.Model;
-using System.Data.SqlClient;
+using StudentGearHub.Models;
+using Microsoft.Data.SqlClient;
 
-namespace StudentGearHub.Controllers
+namespace StudentGearHub.Controller
 {
     [ApiController]
     [Route("api/[controller]")]
     public class ProductController : ControllerBase
     {
         private readonly string? _connectionString;
+        private readonly ILogger<ProductController> _logger;
 
-        public ProductController(IConfiguration configuration)
+        public ProductController(IConfiguration configuration, ILogger<ProductController> logger)
         {
             _connectionString = configuration.GetConnectionString("DefaultConnection");
+            _logger = logger;
         }
 
         // POST: api/Product/Insert
         [HttpPost("Insert")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Insert([FromBody] ProductModel product)
         {
             try
             {
+                // Validate input
+                if (string.IsNullOrWhiteSpace(product.Name))
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Product name is required.",
+                        StatusCode = 400
+                    });
+                }
+
+                if (product.Price < 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Product price cannot be negative.",
+                        StatusCode = 400
+                    });
+                }
+
+                if (product.Stock < 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Product stock cannot be negative.",
+                        StatusCode = 400
+                    });
+                }
+
                 using var conn = new SqlConnection(_connectionString);
                 await conn.OpenAsync();
                 var query = @"INSERT INTO Products (Name, Category, Price, Stock, Description)
@@ -35,15 +68,70 @@ namespace StudentGearHub.Controllers
                 await cmd.ExecuteNonQueryAsync();
                 return Ok(new { message = "Product inserted successfully." });
             }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex, "Database error inserting product.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "A database error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error inserting product.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "An unexpected error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
         }
 
         // PUT: api/Product/Update
         [HttpPut("Update")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Update([FromBody] ProductModel product)
         {
             try
             {
+                // Validate input
+                if (product.Id <= 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Invalid product ID.",
+                        StatusCode = 400
+                    });
+                }
+
+                if (string.IsNullOrWhiteSpace(product.Name))
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Product name is required.",
+                        StatusCode = 400
+                    });
+                }
+
+                if (product.Price < 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Product price cannot be negative.",
+                        StatusCode = 400
+                    });
+                }
+
+                if (product.Stock < 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Product stock cannot be negative.",
+                        StatusCode = 400
+                    });
+                }
+
                 using var conn = new SqlConnection(_connectionString);
                 await conn.OpenAsync();
                 var query = @"UPDATE Products SET Name=@Name, Category=@Category,
@@ -58,15 +146,42 @@ namespace StudentGearHub.Controllers
                 await cmd.ExecuteNonQueryAsync();
                 return Ok(new { message = "Product updated successfully." });
             }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex, "Database error updating product.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "A database error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error updating product.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "An unexpected error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
         }
 
         // DELETE: api/Product/Delete/{id}
         [HttpDelete("Delete/{id}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(int id)
         {
             try
             {
+                if (id <= 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Invalid product ID.",
+                        StatusCode = 400
+                    });
+                }
+
                 using var conn = new SqlConnection(_connectionString);
                 await conn.OpenAsync();
                 var query = "DELETE FROM Products WHERE Id = @Id";
@@ -75,7 +190,24 @@ namespace StudentGearHub.Controllers
                 await cmd.ExecuteNonQueryAsync();
                 return Ok(new { message = "Product deleted successfully." });
             }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex, "Database error deleting product.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "A database error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error deleting product.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "An unexpected error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
         }
 
         // GET: api/Product/GetAll
@@ -104,7 +236,24 @@ namespace StudentGearHub.Controllers
                 }
                 return Ok(products);
             }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex, "Database error retrieving products.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "A database error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error retrieving products.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "An unexpected error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
         }
 
         // GET: api/Product/GetById/{id}
@@ -113,6 +262,15 @@ namespace StudentGearHub.Controllers
         {
             try
             {
+                if (id <= 0)
+                {
+                    return BadRequest(new ErrorResponse
+                    {
+                        Message = "Invalid product ID.",
+                        StatusCode = 400
+                    });
+                }
+
                 using var conn = new SqlConnection(_connectionString);
                 await conn.OpenAsync();
                 var query = "SELECT * FROM Products WHERE Id = @Id";
@@ -131,9 +289,30 @@ namespace StudentGearHub.Controllers
                         Description = reader["Description"]
                     });
                 }
-                return NotFound(new { message = "Product not found." });
+                return NotFound(new ErrorResponse
+                {
+                    Message = "Product not found.",
+                    StatusCode = 404
+                });
             }
-            catch (Exception ex) { return StatusCode(500, new { message = ex.Message }); }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex, "Database error retrieving product by ID.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "A database error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error retrieving product by ID.");
+                return StatusCode(500, new ErrorResponse
+                {
+                    Message = "An unexpected error occurred. Please try again later.",
+                    StatusCode = 500
+                });
+            }
         }
     }
 }
