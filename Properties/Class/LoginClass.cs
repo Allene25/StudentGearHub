@@ -8,7 +8,7 @@ namespace ACLC_Gear_Hub.Properties
     public class LoginClass : ILoginRepository
     {
         private readonly IConfiguration _configuration;
-        private readonly string _connectionString;
+        private readonly string? _connectionString;
 
         public LoginClass(IConfiguration configuration)
         {
@@ -72,7 +72,7 @@ namespace ACLC_Gear_Hub.Properties
                 {
                     cmd.Parameters.AddWithValue("@Username", username);
                     cmd.Parameters.AddWithValue("@Email", email);
-                    int count = (int)await cmd.ExecuteScalarAsync();
+                    int count = (int)(await cmd.ExecuteScalarAsync() ?? 0);
                     return count > 0;
                 }
             }
@@ -85,7 +85,7 @@ namespace ACLC_Gear_Hub.Properties
 
             try
             {
-                if (await UserExists(user.Username, user.Email))
+                if (await UserExists(user.Username ?? "", user.Email ?? ""))
                 {
                     response.IsSuccess = false;
                     response.Message = "Username or email already exists.";
@@ -102,7 +102,7 @@ namespace ACLC_Gear_Hub.Properties
                     using (SqlCommand cmd = new SqlCommand(query, conn))
                     {
                         cmd.Parameters.AddWithValue("@Username", user.Username);
-                        cmd.Parameters.AddWithValue("@PasswordHash", HashPassword(user.Password));
+                        cmd.Parameters.AddWithValue("@PasswordHash", HashPassword(user.Password ?? ""));
                         cmd.Parameters.AddWithValue("@Email", user.Email);
                         cmd.Parameters.AddWithValue("@FullName", user.FullName);
 

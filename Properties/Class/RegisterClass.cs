@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using StudentGearHub.API.IRepository;
 using StudentGearHub.API.Model;
 using System.Threading.Tasks;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 
 namespace StudentGearHub.Properties.NewFolder
@@ -12,7 +12,7 @@ namespace StudentGearHub.Properties.NewFolder
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger<RegisterClass> _logger;
-        private readonly string _connectionString;
+        private readonly string? _connectionString;
 
         public RegisterClass(IConfiguration configuration, ILogger<RegisterClass> logger)
         {
@@ -29,7 +29,7 @@ namespace StudentGearHub.Properties.NewFolder
             try
             {
                 // Check if user already exists
-                if (await UserExistsAsync(model.Username))
+                if (await UserExistsAsync(model.Username ?? ""))
                 {
                     response.IsSuccess = false;
                     response.Message = "Username already exists.";
@@ -37,7 +37,7 @@ namespace StudentGearHub.Properties.NewFolder
                 }
 
                 // Hash the password before storing
-                string hashedPassword = HashPassword(model.Password);
+                string hashedPassword = HashPassword(model.Password ?? "");
 
                 using (SqlConnection conn = new SqlConnection(_connectionString))
                 {
@@ -96,7 +96,7 @@ namespace StudentGearHub.Properties.NewFolder
                 using (SqlCommand cmd = new SqlCommand(query, conn))
                 {
                     cmd.Parameters.AddWithValue("@Username", username);
-                    int count = (int)await cmd.ExecuteScalarAsync();
+                    int count = (int)(await cmd.ExecuteScalarAsync() ?? 0);
                     return count > 0;
                 }
             }
