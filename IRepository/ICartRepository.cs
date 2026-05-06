@@ -1,5 +1,6 @@
 ﻿using System.Threading.Tasks;
 using System.Collections.Generic;
+using StudentGearHub.Model;
 
 namespace StudentGearHub.API.IRepository
 {
